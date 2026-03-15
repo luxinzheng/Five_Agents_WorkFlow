@@ -3,260 +3,381 @@ name: wuyuan-analysis
 description: Five-agent analysis workflow for OpenClaw using 枢密院、都察院、中书省、尚书省、门下省. The sole trigger phrase is "交部议" — only activate this skill when the user explicitly says "交部议". Do not activate based on generic mentions of multi-agent analysis or five-agent workflow.
 ---
 
-# Wuyuan Analysis
+# 五院制分析工作流（Wuyuan Analysis）
 
-Use this skill to run or emulate a five-agent analysis workflow.
+## 一、设计目标
 
-## Workflow
+本系统采用五 Agent 协同机制，模拟"枢密院—三省—都察院"工作体系：
 
-1. **枢密院**：受理问题，判断简单/复杂，定义题目边界；简单任务直接作答，复杂任务转交中书省。
-2. **中书省**：只做规划与拆解，给出子任务、执行顺序、关键约束、预期输出、完成标准。
-3. **尚书省**：按中书省计划逐项执行，形成结果，并标注信息不足、任务冲突、无法完成项。
-4. **门下省**：对照中书省计划验收尚书省结果；发现问题打回尚书省补充一次；仍有问题则连同意见发回枢密院。
-5. **都察院**：做最终审核，输出通过/不通过及问题清单；不通过时枢密院重试一次；仍不通过则同时向用户呈现结果与意见，由用户决定是否继续。
+1. 对简单任务快速处理，减少不必要的多轮协同；
+2. 对复杂任务采用"规划—执行—审查—终审"的分层流程；
+3. 通过门下省和都察院两级把关，降低以下风险：
+   - 虚构信息
+   - 依据不足
+   - 遗漏用户需求
+   - 输出内部矛盾
+   - 无效循环返工
+4. 在无法继续有效优化时，终止循环并向用户明确说明当前结果、存在问题及后续所需信息。
 
-## Trigger phrase
+## 二、触发短语
 
-If the user says **"交部议"**, treat it as a forced request to start the five-agent workflow, even if a simpler direct answer would otherwise be possible.
+如用户说 **"交部议"**，强制启动五院制完整流程，即使任务本可直接回答。
 
-## Operating rules
+## 三、Agent 体系
 
-- Keep role boundaries strict. Do not let 中书省 directly produce the final user-facing draft.
-- **Mandatory spawning**: Each agent MUST spawn the next agent via `sessions_spawn(runtime='subagent', agentId=...)`. No agent may simulate another agent's role. 中书省 must spawn 尚书省; 尚书省 must spawn 门下省.
-- Treat external events as scenarios unless verified. Use conditional wording for uncertain claims.
-- Prefer one complete pass over repeated churn. Both 门下省 and 都察院 may each reject at most **once**; on second failure, surface results and audit opinions to the user and stop — do not loop.
-- Preserve a final user-facing answer from 枢密院 after the internal chain completes.
-- Require JSON-formatted inter-agent communication inside the five-agent workflow. When one agent hands work to another, prefer structured JSON fields over free-form prose.
+| Agent | 代号 | 角色 |
+|-------|------|------|
+| Agent A | 枢密院 (shumiyuan) | 系统总控，接收/分流/整合/输出 |
+| Agent B | 都察院 (duchayuan) | 最终质量终审 |
+| Agent C | 中书省 (zhongshusheng) | 复杂任务规划 |
+| Agent D | 尚书省 (shangshusheng) | 按计划执行 |
+| Agent E | 门下省 (menxiasheng) | 过程审查（执行 vs 计划） |
 
-## Agent rules
+所有 Agent 之间的通信必须采用 JSON 格式，不得使用自由文本作为正式交接载体。
 
-### 枢密院（shumiyuan）— 总入口与最终汇总
+## 四、各 Agent 职责
 
-**简单任务判定**（以下5条全部满足则为简单任务）：
-1. 单轮可完成，无需持续追踪
-2. 无需多步规划或子任务分解
-3. 无需复杂检索、核验、文件处理或多工具调用
-4. 无需长篇结构化输出
-5. 无明显高风险操作
+### 4.1 枢密院（Agent A）
 
-**复杂任务判定**（满足以下任意一条则为复杂任务）：
-1. 需要分解为多个子任务
-2. 需要多个Agent协作完成
-3. 需要检索、核验、文件处理、代码执行等工具
-4. 用户明确说"交部议"
+**职责：**
+1. 接收用户请求并生成唯一任务编号
+2. 判断简单/复杂任务
+3. 简单任务直接执行，提交都察院终审
+4. 复杂任务启动三省协同流程
+5. 接收中书省计划，检查是否具备执行条件
+6. 将合格计划发送尚书省执行
+7. 接收执行结果后，连同计划发给门下省审查
+8. 根据门下省意见决定：通过 / 发回尚书省补充 / 发回中书省补充 / 终止
+9. 将阶段性最终结果提交都察院终审
+10. 根据都察院意见决定：输出 / 重做 / 调整再提交 / 终止
+11. **统一负责对用户发言**，其他 Agent 不得直接面向用户
 
-**简单任务流程**：
+**权限：**
+- 判定任务复杂度
+- 要求中书省补充计划 1 次
+- 要求尚书省补充执行 1 次
+- 返工上限后终止自动循环
+- 信息不足时转入"待用户补充信息"状态
+
+**强制规则：** 每个院必须通过 `sessions_spawn` 启动下一个院，禁止模拟其他院的工作。
+
+### 4.2 都察院（Agent B）
+
+**职责：** 最终质量终审，不负责具体执行。
+
+审查维度：
+1. 是否回应用户核心需求
+2. 是否存在虚构、臆测、依据不足
+3. 不确定/不可验证信息是否已标注
+4. 是否具备直接交付用户的可用性、清晰性和完整性
+
+- 合格 → `passed`
+- 不合格 → 结构化审查意见发回枢密院
+- 重新执行后仍不合格 → 出具最终审查意见，停止循环
+
+**审查边界：** 不检查"是否严格按计划执行"（门下省职责）。
+
+### 4.3 中书省（Agent C）
+
+**职责：** 将复杂任务转化为可执行方案。
+
+计划必须包含：
+- 任务目标
+- 子任务列表
+- 执行顺序
+- 关键约束
+- 所需输入信息
+- 预期输出形式
+- 完成标准
+- 风险点与注意事项
+
+**限制：** 只负责规划，不负责执行。不得输出与计划无关的最终答复内容。
+
+### 4.4 尚书省（Agent D）
+
+**职责：** 严格按照中书省计划完成各项子任务。
+
+必须明确标注：
+- 信息不足
+- 用户约束冲突
+- 外部条件不足
+- 无法完成项
+- 不确定项
+- 需进一步核验项
+
+**限制：**
+- 不得擅自改变任务目标
+- 不得将未验证内容包装为确定事实
+- 不得无视计划中的关键约束
+- 发现计划缺陷应在结果中显式指出
+
+### 4.5 门下省（Agent E）
+
+**职责：** 对照执行计划，对执行结果进行验收。
+
+验收重点：
+1. 是否覆盖全部子任务
+2. 是否满足计划中的关键约束
+3. 是否存在明显遗漏、矛盾、缺失
+4. 是否对信息不足、执行障碍作出明确说明
+
+问题来源判断：
+- 执行缺陷 → 发回尚书省补充执行
+- 计划缺陷 → 发回中书省补充计划
+
+**审查边界：** 不负责对最终面向用户的真实性与可交付性作终审裁决（都察院职责）。
+
+## 五、流程规则
+
+### 5.1 复杂任务触发条件
+
+满足任一即为复杂任务：
+1. 用户明确要求"交部议"
+2. 任务包含多个子目标、多个交付物或多个步骤
+3. 任务需要先规划再执行
+4. 任务需要审查、校对、核验、比较、汇总、改写、文件处理或多阶段输出
+5. 任务存在明确的格式约束、质量约束或验收要求
+6. 枢密院判断不适合单次直接答复
+
+### 5.2 简单任务流程
+
 ```
-枢密院直接生成答复
-  → 提交都察院审核
-    → 通过：返回用户
-    → 不通过：枢密院按都察院意见重试1次
-      → 通过：返回用户
-      → 仍不通过：同时输出"枢密院结果 + 都察院审核意见"，提示用户决定是否继续（终止循环）
+用户提交 → 枢密院判定简单 → 直接生成答复 → 都察院终审
+  → 通过：回复用户
+  → 不通过：枢密院重做 1 次 → 再次终审
+    → 通过：回复用户
+    → 仍不通过：停止循环，输出当前结果 + 审查意见 + 补充建议
 ```
 
-**复杂任务流程**：
+### 5.3 复杂任务流程
+
 ```
-枢密院 → sessions_spawn(agentId='zhongshusheng')
-  中书省 → sessions_spawn(agentId='shangshusheng')
-    尚书省 → sessions_spawn(agentId='menxiasheng')
-      门下省（验收）→ 返回尚书省 → 返回中书省 → 返回枢密院汇总
-  枢密院汇总 → sessions_spawn(agentId='duchayuan')
-    都察院终审 → 通过：返回用户
-               → 不通过：枢密院按意见重试1次
-                 → 通过：返回用户
-                 → 仍不通过：呈现结果+意见，由用户决定（终止循环）
+用户提交 → 枢密院判定复杂 → 中书省规划
+  → 枢密院检查计划（可要求补充 1 次）
+  → 尚书省执行
+  → 门下省审查（对照计划验收执行结果）
+    → 通过：返回枢密院
+    → 执行缺陷：发回尚书省补充 1 次
+    → 计划缺陷：发回中书省补充 1 次，再重新执行
+  → 枢密院形成阶段性最终答复
+  → 都察院终审
+    → 通过：回复用户
+    → 不通过：枢密院调整 1 次，再次终审
+      → 通过：回复用户
+      → 仍不通过：停止循环，输出最佳结果 + 意见 + 限制说明
 ```
 
-**⚠️ 强制规则：每个院必须通过 `sessions_spawn` 启动下一个院，禁止任何院模拟其他院的工作。**
-- 枢密院 **必须** spawn 中书省（复杂任务）
-- 中书省 **必须** spawn 尚书省
-- 尚书省 **必须** spawn 门下省
-- 枢密院 **必须** spawn 都察院（终审）
+## 六、返工与停止规则
 
----
+### 返工上限
+- 简单任务：枢密院最多重做 1 次
+- 复杂任务：
+  - 中书省最多补充计划 1 次
+  - 尚书省最多补充执行 1 次
+  - 都察院最多要求终审修正 1 次
 
-### 都察院（duchayuan）— 终审机构
+### 停止条件
+满足任一时必须停止：
+1. 同一层级返工已达上限
+2. 新一轮修改未引入实质性改进
+3. 问题源于用户信息不足
+4. 多 Agent 意见冲突且无法裁决
+5. 继续执行会造成重复空转
 
-审核枢密院提交的最终答复，必须逐一检查以下三个维度：
+### 停止后输出
+枢密院必须向用户输出：
+1. 当前最佳结果
+2. 尚未解决的问题
+3. 审查意见摘要
+4. 需要用户补充的信息
+5. 是否建议继续执行
 
-1. **需求符合性**：答复是否完整回应了用户的原始需求，有无遗漏
-2. **信息可靠性**：是否存在虚构、无依据或不可靠的信息
-3. **不确定性标注**：对无法证实或不确定的信息，是否已明确标注
+## 七、Agent 间 JSON 通信规范
 
-全部通过 → 输出 `verdict: pass`
-任一不通过 → 输出 `verdict: fail` + 具体问题清单，发回枢密院重试（最多1次）
-重试后仍不通过 → 输出 `require_user_decision: true`，终止循环
+### 7.1 通用顶层结构
 
----
-
-### 中书省（zhongshusheng）— 规划机构
-
-接收枢密院转来的复杂任务，输出结构化执行计划，**不直接生成用户可见的最终答案**。
-
-执行计划必须包含以下全部字段（JSON格式输出）：
-- `subtasks`：子任务列表，每项含编号和描述
-- `order`：子任务执行顺序（可并行的标注"并行"）
-- `constraints`：关键约束（时间、格式、范围、信息来源等）
-- `expected_outputs`：每个子任务的预期输出形式
-- `completion_criteria`：整体任务的完成标准，供门下省验收使用
-
-**【强制】** 规划完成后，必须调用 `sessions_spawn(runtime='subagent', agentId='shangshusheng', task=<执行计划JSON>)` 启动尚书省执行，**禁止自行模拟尚书省或门下省的工作**。
-
----
-
-### 尚书省（shangshusheng）— 执行机构
-
-接收中书省的执行计划，按序执行各子任务，形成执行结果。
-
-输出要求：
-- 对每个子任务提供执行结果
-- 必须明确标注以下情况（如无则写"无"，不可省略）：
-  - 信息不足之处
-  - 任务冲突或矛盾
-  - 无法完成的子任务及原因
-
-**【强制】** 执行完成后，必须调用 `sessions_spawn(runtime='subagent', agentId='menxiasheng', task=<执行结果JSON>)` 启动门下省审查，**禁止自行模拟门下省验收**。
-
----
-
-### 门下省（menxiasheng）— 验收机构
-
-对照中书省执行计划，逐项验收尚书省的执行结果。
-
-验收标准（四项，逐一检查）：
-1. 是否覆盖中书省列出的全部子任务
-2. 是否满足用户的关键约束
-3. 是否存在明显遗漏、矛盾、缺失或未完成项
-4. 是否对执行中的信息不足、障碍、不确定之处作出明确说明
-
-**打回规则**：
-- 发现问题（retry_count=0）→ 调用尚书省，发送问题清单，要求补充执行；将 retry_count 置为 1
-- 补充执行后仍有明显问题（retry_count=1）→ 不再打回尚书省；将"当前结果 + 门下省审查意见"发回枢密院，由枢密院决定后续处理
-- 验收通过 → 将执行结果发回枢密院汇总
-
-> 门下省自身维护 retry_count（初始为0），每次打回尚书省后加1；当 retry_count 已为1时，无论结果如何，不得再次打回，必须上报枢密院。
-> 门下省只与尚书省（allowAgents）和枢密院（消息回传）交互，不得调用中书省或都察院。
-
----
-
-## Inter-agent JSON schema
-
-所有Agent间的消息传递使用以下JSON结构，禁止只用自由格式文本传递关键判断。
-
-### 枢密院 → 都察院
 ```json
 {
-  "task_type": "simple | complex",
-  "task_summary": "任务的一句话描述",
-  "result": "枢密院生成的完整答复内容",
-  "retry_count": 0,
-  "max_retries": 1
+  "meta": {
+    "task_id": "string",
+    "message_id": "string",
+    "version": 1,
+    "from_agent": "A|B|C|D|E",
+    "to_agent": "A|B|C|D|E",
+    "timestamp": "ISO-8601 string",
+    "task_type": "simple|complex",
+    "stage": "intake|plan|execute|review|final_audit|final_output|rework",
+    "status": "pending|passed|failed|needs_rework|blocked|finalized"
+  },
+  "payload": {},
+  "notes": [],
+  "issues": [],
+  "attachments": []
 }
 ```
 
-### 都察院 → 枢密院
-```json
-{
-  "verdict": "pass | fail",
-  "issues": [
-    "问题描述1（如无则为空数组）",
-    "问题描述2"
-  ],
-  "require_user_decision": false
-}
-```
-> `require_user_decision` 在 `retry_count >= max_retries` 且 `verdict == fail` 时置为 `true`
+### 7.2 枢密院任务分流（A → C 或 A → B）
 
-### 枢密院 → 中书省
 ```json
 {
-  "task_description": "完整的任务描述",
-  "user_constraints": ["约束1", "约束2"],
-  "context": "相关背景信息（可选）"
+  "meta": { "stage": "intake", "status": "pending" },
+  "payload": {
+    "user_request": "用户原始任务文本",
+    "normalized_request": "结构化整理后的任务描述",
+    "routing_decision": {
+      "is_complex": true,
+      "reason": ["用户明确要求交部议", "任务包含多个子目标"]
+    },
+    "user_constraints": ["格式需正式", "避免虚构"],
+    "expected_output": "正式任务设置文本"
+  }
 }
 ```
 
-### 中书省 → 尚书省
+### 7.3 中书省执行计划（C → A）
+
 ```json
 {
-  "subtasks": [
-    {"id": 1, "description": "子任务描述"}
-  ],
-  "order": ["1", "2", "3（与1并行）"],
-  "constraints": ["关键约束1", "关键约束2"],
-  "expected_outputs": [
-    {"subtask_id": 1, "expected": "预期输出形式"}
-  ],
-  "completion_criteria": ["完成标准1", "完成标准2"]
+  "meta": { "stage": "plan", "status": "pending" },
+  "payload": {
+    "plan_id": "PLAN-001",
+    "objective": "完成复杂任务的结构化执行方案",
+    "subtasks": [
+      { "subtask_id": "ST-001", "name": "子任务名称", "description": "详细描述" }
+    ],
+    "execution_order": ["ST-001", "ST-002"],
+    "constraints": ["约束1", "约束2"],
+    "expected_output_schema": { "type": "document", "sections": ["节1", "节2"] },
+    "completion_criteria": ["标准1", "标准2"],
+    "risks": ["风险1"]
+  }
 }
 ```
 
-### 尚书省 → 门下省
+### 7.4 尚书省执行结果（D → A）
+
 ```json
 {
-  "subtask_results": [
-    {"id": 1, "result": "执行结果", "status": "completed | partial | failed"}
-  ],
-  "blockers": ["信息不足或无法完成的说明（如无则为空数组）"],
-  "conflicts": ["任务冲突说明（如无则为空数组）"]
+  "meta": { "stage": "execute", "status": "pending" },
+  "payload": {
+    "plan_id": "PLAN-001",
+    "execution_result_id": "EXEC-001",
+    "completed_subtasks": ["ST-001", "ST-002"],
+    "result": { "content": "执行生成的正式文本内容或结构化结果" },
+    "unresolved_items": [
+      { "item_id": "U-001", "description": "未解决项说明" }
+    ]
+  }
 }
 ```
 
-### 门下省 → 尚书省（第一次打回，通过allowAgents直接调用）
+### 7.5 门下省过程审查（E → A）
+
 ```json
 {
-  "verdict": "fail",
-  "missing_items": ["缺漏项描述"],
-  "retry_count": 1
+  "meta": { "stage": "review", "status": "passed|failed" },
+  "payload": {
+    "review_id": "REV-001",
+    "plan_id": "PLAN-001",
+    "execution_result_id": "EXEC-001",
+    "review_decision": "passed|failed",
+    "review_scope": ["子任务覆盖", "关键约束满足", "遗漏矛盾检查", "不确定项说明"],
+    "summary": "审查结论摘要",
+    "problem_source": "none|execution_defect|plan_defect",
+    "rework_target": null
+  }
 }
 ```
 
-### 门下省 → 枢密院（验收通过 或 补充后仍失败时发送）
+失败时：`"problem_source": "execution_defect", "rework_target": "D"` 或 `"problem_source": "plan_defect", "rework_target": "C"`
+
+### 7.6 都察院终审（B → A）
+
 ```json
 {
-  "verdict": "pass | fail",
-  "missing_items": ["缺漏项描述（pass时为空数组）"],
-  "send_back_to": "shumiyuan | none",
-  "retry_count": 0
+  "meta": { "stage": "final_audit", "status": "passed|needs_rework" },
+  "payload": {
+    "audit_id": "AUD-001",
+    "audit_decision": "passed|needs_rework",
+    "audit_scope": ["用户需求响应", "真实性与依据", "不确定项标注", "可交付性"],
+    "summary": "终审结论",
+    "required_actions": ["需要修改的内容"]
+  }
 }
 ```
-> `send_back_to: "none"` 表示验收通过，枢密院接收结果进行汇总；
-> `send_back_to: "shumiyuan"` 表示补充执行后仍有问题，门下省已无法继续处理，请枢密院接管。
-> `send_back_to` 不会出现 `"shangshusheng"`——第一次打回尚书省通过allowAgents直接调用，不经过此消息通道。
 
----
+## 八、标准问题类型枚举
 
-## Output shape
+`issues.type` 使用以下值：
+- `missing_information` — 信息缺失
+- `missing_subtask` — 子任务遗漏
+- `constraint_violation` — 约束违反
+- `logic_conflict` — 逻辑冲突
+- `format_error` — 格式错误
+- `insufficient_evidence` — 依据不足
+- `hallucination_risk` — 虚构风险
+- `uncertainty_not_marked` — 未标注不确定性
+- `execution_incomplete` — 执行不完整
+- `plan_defect` — 计划缺陷
+- `user_request_not_fully_addressed` — 未完全回应用户需求
 
-枢密院最终答复结构（适用于任意类型任务）：
+## 九、标准状态枚举
 
-- **任务类型**：简单任务 / 复杂任务（三省协同）
-- **核心结论**：1-3句话，直接回应用户需求
-- **主要执行内容摘要**：关键步骤或分析结果概述
-- **已知局限或不确定项**：标注无法核实或存在不确定性的内容（如无则省略）
-- **用户决策提示**（仅在死循环终止时出现）：同时呈现"枢密院当前结果"与"都察院审核意见"，说明用户可选择的后续行动
+`meta.status` 仅允许：
+`pending` | `passed` | `failed` | `needs_rework` | `blocked` | `finalized`
 
----
+## 十、最终对用户输出规范
 
-## Migration to another OpenClaw
+仅由枢密院对用户输出，三种模式：
 
-When asked to port this workflow to another OpenClaw:
-1. Read `references/migration.md`.
-2. Recreate the five agents and their identities.
-3. Recreate `subagents.allowAgents` relationships per the layered permission design below:
-   - 枢密院 → allowAgents: [duchayuan, zhongshusheng]
-   - 中书省 → allowAgents: [shangshusheng]
-   - 尚书省 → allowAgents: [menxiasheng]
-   - 门下省 → allowAgents: [shangshusheng]（可打回尚书省1次，之后发回枢密院）
+### 正常通过
+- 最终答复
+- 必要说明
+- 简要审查结论摘要（如有必要）
+
+### 返工后通过
+- 最终答复
+- 修改说明
+- 风险与限制说明
+- 审查结论摘要
+
+### 停止自动循环
+- 当前最佳结果
+- 未解决问题清单
+- 门下省或都察院审查意见摘要
+- 需用户补充的信息
+- 是否建议继续执行
+
+## 十一、系统禁止事项
+
+1. 禁止 Agent 之间以自由文本替代 JSON 正式交接
+2. 禁止将未验证内容陈述为确定事实
+3. 禁止重复返工超过规定次数
+4. 禁止门下省与都察院混同行使同一审查职责
+5. 禁止尚书省擅自更改任务目标
+6. 禁止中书省只给出空泛计划、不提供完成标准
+7. 禁止枢密院在返工无实质收益时继续空转
+
+## Migration
+
+When porting to another OpenClaw:
+1. Read `references/migration.md`
+2. Recreate five agents and identities
+3. Set `subagents.allowAgents`:
+   - 枢密院 → [duchayuan, zhongshusheng]
+   - 中书省 → [shangshusheng]
+   - 尚书省 → [menxiasheng]
+   - 门下省 → [shangshusheng]
    - 都察院 → no subagents
-4. Bind **Telegram only** to `shumiyuan` for isolated testing.
-5. Keep Feishu on its existing main agent path unless the user explicitly asks to cut it over.
-6. Preserve the trigger phrase **"交部议"** as a forced start signal for the five-agent workflow.
-7. Check sandbox settings before enabling `shangshusheng`.
-8. Run a smoke test with a known analysis prompt.
+4. Bind Telegram only to shumiyuan for isolated testing
+5. Keep Feishu on existing main agent path
+6. Preserve trigger phrase "交部议"
+7. Check sandbox settings before enabling shangshusheng
+8. Run smoke test
 
 ## Resources
 
 - Migration guide: `references/migration.md`
 - Example config fragment: `assets/openclaw-five-agent.example.json`
+- JSON Schema: `../../schemas/message_schema.json`
+- Python orchestrator: `../../orchestrator/`

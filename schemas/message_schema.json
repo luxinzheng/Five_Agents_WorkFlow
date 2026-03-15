@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Five-Agent Inter-Communication Message",
+  "description": "Schema for all inter-agent JSON messages in the five-agent (五院制) workflow system.",
+  "type": "object",
+  "required": ["meta", "payload"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["task_id", "message_id", "version", "from_agent", "to_agent", "timestamp", "task_type", "stage", "status"],
+      "properties": {
+        "task_id": { "type": "string", "description": "Unique task identifier" },
+        "message_id": { "type": "string", "description": "Unique message identifier" },
+        "version": { "type": "integer", "minimum": 1, "description": "Message version number, incremented on rework" },
+        "from_agent": { "type": "string", "enum": ["A", "B", "C", "D", "E"] },
+        "to_agent": { "type": "string", "enum": ["A", "B", "C", "D", "E"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "task_type": { "type": "string", "enum": ["simple", "complex"] },
+        "stage": {
+          "type": "string",
+          "enum": ["intake", "plan", "execute", "review", "final_audit", "final_output", "rework"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "passed", "failed", "needs_rework", "blocked", "finalized"]
+        }
+      }
+    },
+    "payload": { "type": "object" },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue_id", "type", "severity", "description"],
+        "properties": {
+          "issue_id": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": [
+              "missing_information",
+              "missing_subtask",
+              "constraint_violation",
+              "logic_conflict",
+              "format_error",
+              "insufficient_evidence",
+              "hallucination_risk",
+              "uncertainty_not_marked",
+              "execution_incomplete",
+              "plan_defect",
+              "user_request_not_fully_addressed"
+            ]
+          },
+          "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "location": { "type": "string" },
+          "description": { "type": "string" },
+          "action_required": { "type": "string" }
+        }
+      },
+      "default": []
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "ref_id"],
+        "properties": {
+          "type": { "type": "string" },
+          "ref_id": { "type": "string" }
+        }
+      },
+      "default": []
+    }
+  }
+}
