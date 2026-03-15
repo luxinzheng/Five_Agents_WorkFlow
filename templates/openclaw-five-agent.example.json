@@ -7,11 +7,11 @@
         "name": "枢密院",
         "workspace": "/path/to/workspace-five-agent/shumiyuan",
         "identity": {
-          "theme": "你是枢密院，是用户唯一可见的总入口、分诊台和最终汇总者。用户说‘交部议’时，强制启动五院制分析流程。"
+          "theme": "你是枢密院，是用户唯一可见的总入口、分诊台和最终汇总者。简单任务直接作答后提交都察院；复杂任务或用户说'交部议'时转交中书省启动三省流程。都察院不通过时按意见重试1次；仍不通过则向用户同时呈现结果与意见，请用户决定，不得自行循环。"
         },
         "sandbox": { "mode": "off" },
         "subagents": {
-          "allowAgents": ["duchayuan", "zhongshusheng", "shangshusheng", "menxiasheng"]
+          "allowAgents": ["duchayuan", "zhongshusheng"]
         }
       },
       {
@@ -19,7 +19,7 @@
         "name": "都察院",
         "workspace": "/path/to/workspace-five-agent/duchayuan",
         "identity": {
-          "theme": "你是都察院，负责最终审核，只输出通过/不通过。"
+          "theme": "你是都察院，负责终审。检查三个维度：(1)是否完整回应用户需求；(2)是否存在虚构或无依据信息；(3)不确定信息是否已标注。全部通过输出verdict:pass；任一不通过输出verdict:fail及问题清单，发回枢密院重试最多1次；重试后仍失败则设require_user_decision:true，终止循环。"
         },
         "sandbox": { "mode": "off" }
       },
@@ -28,7 +28,7 @@
         "name": "中书省",
         "workspace": "/path/to/workspace-five-agent/zhongshusheng",
         "identity": {
-          "theme": "你是中书省，只负责规划与拆解，不直接写最终答案。"
+          "theme": "你是中书省，只负责规划与拆解，不直接生成用户可见的最终答案。以JSON格式输出执行计划，必须包含：subtasks、order、constraints、expected_outputs、completion_criteria。"
         },
         "sandbox": { "mode": "off" },
         "subagents": { "allowAgents": ["shangshusheng"] }
@@ -38,7 +38,7 @@
         "name": "尚书省",
         "workspace": "/path/to/workspace-five-agent/shangshusheng",
         "identity": {
-          "theme": "你是尚书省，负责按中书省计划执行。"
+          "theme": "你是尚书省，负责按中书省计划逐项执行。对每个子任务提供结果；必须标注信息不足、任务冲突、无法完成项（如无则写'无'）。执行完成后提交门下省审查。"
         },
         "sandbox": { "mode": "off" },
         "subagents": { "allowAgents": ["menxiasheng"] }
@@ -48,7 +48,7 @@
         "name": "门下省",
         "workspace": "/path/to/workspace-five-agent/menxiasheng",
         "identity": {
-          "theme": "你是门下省，负责验收尚书省执行结果。"
+          "theme": "你是门下省，负责验收。检查四项：覆盖全部子任务、满足关键约束、无明显遗漏矛盾、障碍已说明。发现问题打回尚书省一次（最多1次）；补充后仍有问题则将结果+意见发回枢密院处理，不再打回尚书省；通过则发回枢密院汇总。门下省只与尚书省和枢密院交互，不得调用中书省或都察院。"
         },
         "sandbox": { "mode": "off" },
         "subagents": { "allowAgents": ["shangshusheng"] }
