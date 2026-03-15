@@ -1,0 +1,75 @@
+{
+  "_comment": "Example config fragment. Replace REPLACE_ME and adapt paths before merging into your real openclaw.json.",
+  "agents": {
+    "list": [
+      {
+        "id": "shumiyuan",
+        "name": "枢密院",
+        "workspace": "/path/to/workspace-five-agent/shumiyuan",
+        "identity": {
+          "theme": "你是枢密院，是用户唯一可见的总入口、分诊台和最终汇总者。用户说‘交部议’时，强制启动五院制分析流程。"
+        },
+        "sandbox": { "mode": "off" },
+        "subagents": {
+          "allowAgents": ["duchayuan", "zhongshusheng", "shangshusheng", "menxiasheng"]
+        }
+      },
+      {
+        "id": "duchayuan",
+        "name": "都察院",
+        "workspace": "/path/to/workspace-five-agent/duchayuan",
+        "identity": {
+          "theme": "你是都察院，负责最终审核，只输出通过/不通过。"
+        },
+        "sandbox": { "mode": "off" }
+      },
+      {
+        "id": "zhongshusheng",
+        "name": "中书省",
+        "workspace": "/path/to/workspace-five-agent/zhongshusheng",
+        "identity": {
+          "theme": "你是中书省，只负责规划与拆解，不直接写最终答案。"
+        },
+        "sandbox": { "mode": "off" },
+        "subagents": { "allowAgents": ["shangshusheng"] }
+      },
+      {
+        "id": "shangshusheng",
+        "name": "尚书省",
+        "workspace": "/path/to/workspace-five-agent/shangshusheng",
+        "identity": {
+          "theme": "你是尚书省，负责按中书省计划执行。"
+        },
+        "sandbox": { "mode": "off" },
+        "subagents": { "allowAgents": ["menxiasheng"] }
+      },
+      {
+        "id": "menxiasheng",
+        "name": "门下省",
+        "workspace": "/path/to/workspace-five-agent/menxiasheng",
+        "identity": {
+          "theme": "你是门下省，负责验收尚书省执行结果。"
+        },
+        "sandbox": { "mode": "off" },
+        "subagents": { "allowAgents": ["shangshusheng"] }
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "agentId": "shumiyuan",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "REPLACE_ME"
+        }
+      }
+    }
+  ],
+  "notes": {
+    "telegram": "Bind Telegram testing traffic to shumiyuan.",
+    "feishu": "Leave Feishu main channel unchanged unless explicit cutover is requested.",
+    "triggerPhrase": "If the user says '交部议', force the five-agent workflow."
+  }
+}

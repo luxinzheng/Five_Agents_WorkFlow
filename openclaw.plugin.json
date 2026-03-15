@@ -1,0 +1,11 @@
+{
+  "id": "wuyuan-analysis-pack",
+  "name": "Wuyuan Analysis Pack",
+  "description": "Five-agent analysis workflow pack for OpenClaw. Ships the 五院制 analysis skill, migration guide, Telegram-isolated testing pattern, and the trigger phrase 交部议.",
+  "skills": ["skills/wuyuan-analysis"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

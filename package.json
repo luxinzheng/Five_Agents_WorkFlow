@@ -1,0 +1,7 @@
+{
+  "name": "openclaw-wuyuan-analysis-pack",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GitHub-distributable OpenClaw pack for five-agent analysis workflow",
+  "type": "module"
+}

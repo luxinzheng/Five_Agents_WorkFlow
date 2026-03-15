@@ -1,0 +1,15 @@
+{
+  "_comment": "Template file. Replace REPLACE_TELEGRAM_DM_ID with the actual Telegram DM peer id before use.",
+  "bindings": [
+    {
+      "agentId": "shumiyuan",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "REPLACE_TELEGRAM_DM_ID"
+        }
+      }
+    }
+  ]
+}
