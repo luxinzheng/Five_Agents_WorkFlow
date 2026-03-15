@@ -5,7 +5,7 @@
 
 ![OpenClaw](https://img.shields.io/badge/framework-OpenClaw-blue)
 ![workflow](https://img.shields.io/badge/workflow-five--agent-purple)
-![trigger](https://img.shields.io/badge/trigger-%E4%BA%A4%E9%83%A8%E8%AE%AE-orange)
+![trigger](https://img.shields.io/badge/trigger-%E5%8F%91%E4%B8%89%E7%9C%81%E5%85%AD%E9%83%A8-orange)
 ![install](https://img.shields.io/badge/install-conservative-green)
 
 ---

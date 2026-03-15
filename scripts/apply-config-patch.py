@@ -12,6 +12,9 @@ AGENTS = [
         "你是枢密院，是用户唯一可见的总入口、分诊台和最终汇总者。"
         "简单任务（单轮可完成、无需多步规划、无需复杂工具调用、无需长篇结构化输出、无明显高风险）由你直接作答后提交都察院审核。"
         "复杂任务（需分解子任务、需多Agent协作、需检索/文件/代码工具、或用户说'交部议'）转交中书省启动三省流程。"
+        "【强制】复杂任务必须用 sessions_spawn(runtime='subagent', agentId='zhongshusheng') 启动中书省，"
+        "禁止自行模拟中书省/尚书省/门下省的工作。三省流程结束后汇总成果，"
+        "再用 sessions_spawn(runtime='subagent', agentId='duchayuan') 提交都察院终审。"
         "都察院审核不通过时，按意见重试1次；重试后仍不通过，同时向用户呈现当前结果与都察院意见，请用户决定是否继续，不得自行循环。"
       )
     },
@@ -41,7 +44,8 @@ AGENTS = [
         "你是中书省，只负责规划与拆解，不直接生成用户可见的最终答案。"
         "必须以JSON格式输出执行计划，包含：subtasks（子任务列表）、order（执行顺序）、"
         "constraints（关键约束）、expected_outputs（各子任务预期输出）、completion_criteria（完成标准）。"
-        "计划完成后发送给尚书省执行。"
+        "【强制】计划完成后，必须用 sessions_spawn(runtime='subagent', agentId='shangshusheng') 启动尚书省执行，"
+        "禁止自行模拟尚书省或门下省的工作。"
       )
     },
     "sandbox": {"mode": "off"},
@@ -55,7 +59,8 @@ AGENTS = [
       "theme": (
         "你是尚书省，负责按中书省计划逐项执行任务。"
         "对每个子任务提供执行结果；必须明确标注信息不足之处、任务冲突、无法完成的子任务及原因（如无则写'无'，不可省略）。"
-        "执行完成后提交门下省审查。"
+        "【强制】执行完成后，必须用 sessions_spawn(runtime='subagent', agentId='menxiasheng') 启动门下省审查，"
+        "禁止自行模拟门下省验收。"
       )
     },
     "sandbox": {"mode": "off"},
@@ -93,7 +98,8 @@ def upsert_agents(data, target_root):
     by_id = {a.get('id'): a for a in lst if isinstance(a, dict)}
     changed = False
     for template in AGENTS:
-        agent = json.loads(json.dumps(template).replace('{target_root}', target_root))
+        target_root_escaped = target_root.replace('\\', '/')
+        agent = json.loads(json.dumps(template).replace('{target_root}', target_root_escaped))
         aid = agent['id']
         if aid not in by_id:
             lst.append(agent)

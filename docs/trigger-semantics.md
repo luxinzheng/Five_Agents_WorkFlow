@@ -1,6 +1,7 @@
 # Trigger semantics
 
 ## Fixed workflow command
+
 `交部议`
 
 ## Meaning

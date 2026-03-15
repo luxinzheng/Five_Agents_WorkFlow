@@ -1,6 +1,6 @@
 ---
 name: wuyuan-analysis
-description: Five-agent analysis workflow for OpenClaw using 枢密院、都察院、中书省、尚书省、门下省. Use when the user asks to "交部议", explicitly requests 五院制/五院协作/5-agent analysis, or wants a structured multi-agent review with planning, execution, validation, and final audit. Also use when migrating this workflow to another OpenClaw instance.
+description: Five-agent analysis workflow for OpenClaw using 枢密院、都察院、中书省、尚书省、门下省. The sole trigger phrase is "交部议" — only activate this skill when the user explicitly says "交部议". Do not activate based on generic mentions of multi-agent analysis or five-agent workflow.
 ---
 
 # Wuyuan Analysis
@@ -22,6 +22,7 @@ If the user says **"交部议"**, treat it as a forced request to start the five
 ## Operating rules
 
 - Keep role boundaries strict. Do not let 中书省 directly produce the final user-facing draft.
+- **Mandatory spawning**: Each agent MUST spawn the next agent via `sessions_spawn(runtime='subagent', agentId=...)`. No agent may simulate another agent's role. 中书省 must spawn 尚书省; 尚书省 must spawn 门下省.
 - Treat external events as scenarios unless verified. Use conditional wording for uncertain claims.
 - Prefer one complete pass over repeated churn. Both 门下省 and 都察院 may each reject at most **once**; on second failure, surface results and audit opinions to the user and stop — do not loop.
 - Preserve a final user-facing answer from 枢密院 after the internal chain completes.
@@ -42,7 +43,7 @@ If the user says **"交部议"**, treat it as a forced request to start the five
 1. 需要分解为多个子任务
 2. 需要多个Agent协作完成
 3. 需要检索、核验、文件处理、代码执行等工具
-4. 用户明确说"交部议"或"发三省六部"
+4. 用户明确说"交部议"
 
 **简单任务流程**：
 ```
@@ -56,13 +57,22 @@ If the user says **"交部议"**, treat it as a forced request to start the five
 
 **复杂任务流程**：
 ```
-枢密院 → 中书省（规划）→ 尚书省（执行）→ 门下省（验收）→ 枢密院汇总
-  → 提交都察院终审
-    → 通过：返回用户
-    → 不通过：枢密院按都察院意见重试1次
-      → 通过：返回用户
-      → 仍不通过：同时输出"枢密院结果 + 都察院审核意见"，提示用户决定（终止循环）
+枢密院 → sessions_spawn(agentId='zhongshusheng')
+  中书省 → sessions_spawn(agentId='shangshusheng')
+    尚书省 → sessions_spawn(agentId='menxiasheng')
+      门下省（验收）→ 返回尚书省 → 返回中书省 → 返回枢密院汇总
+  枢密院汇总 → sessions_spawn(agentId='duchayuan')
+    都察院终审 → 通过：返回用户
+               → 不通过：枢密院按意见重试1次
+                 → 通过：返回用户
+                 → 仍不通过：呈现结果+意见，由用户决定（终止循环）
 ```
+
+**⚠️ 强制规则：每个院必须通过 `sessions_spawn` 启动下一个院，禁止任何院模拟其他院的工作。**
+- 枢密院 **必须** spawn 中书省（复杂任务）
+- 中书省 **必须** spawn 尚书省
+- 尚书省 **必须** spawn 门下省
+- 枢密院 **必须** spawn 都察院（终审）
 
 ---
 
@@ -91,6 +101,8 @@ If the user says **"交部议"**, treat it as a forced request to start the five
 - `expected_outputs`：每个子任务的预期输出形式
 - `completion_criteria`：整体任务的完成标准，供门下省验收使用
 
+**【强制】** 规划完成后，必须调用 `sessions_spawn(runtime='subagent', agentId='shangshusheng', task=<执行计划JSON>)` 启动尚书省执行，**禁止自行模拟尚书省或门下省的工作**。
+
 ---
 
 ### 尚书省（shangshusheng）— 执行机构
@@ -103,7 +115,8 @@ If the user says **"交部议"**, treat it as a forced request to start the five
   - 信息不足之处
   - 任务冲突或矛盾
   - 无法完成的子任务及原因
-- 执行完成后，将结果提交门下省审查
+
+**【强制】** 执行完成后，必须调用 `sessions_spawn(runtime='subagent', agentId='menxiasheng', task=<执行结果JSON>)` 启动门下省审查，**禁止自行模拟门下省验收**。
 
 ---
 
