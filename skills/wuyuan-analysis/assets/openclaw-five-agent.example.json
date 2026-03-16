@@ -1,5 +1,6 @@
 {
   "_comment": "Example config fragment. Replace REPLACE_ME and adapt paths before merging into your real openclaw.json.",
+  "_note_depth": "OpenClaw subagent depth limit is 1. Only shumiyuan (depth 0) can spawn subagents. All other agents have empty allowAgents.",
   "agents": {
     "list": [
       {
@@ -7,7 +8,7 @@
         "name": "枢密院",
         "workspace": "/path/to/workspace-five-agent/shumiyuan",
         "identity": {
-          "theme": "你是枢密院，是用户唯一可见的总入口、分诊台和最终汇总者。用户说‘交部议’时，强制启动五院制分析流程。"
+          "theme": "你是枢密院（Agent A），五院制系统总控。职责：受理请求，判断简单/复杂；简单任务直接作答后spawn都察院终审；复杂任务串行spawn：(1)sessions_spawn(agentId='zhongshusheng')规划→(2)sessions_spawn(agentId='shangshusheng')执行→(3)sessions_spawn(agentId='menxiasheng')验收→(4)sessions_spawn(agentId='duchayuan')终审；门下省打回尚书省至多1次；都察院打回至多1次；超限停止循环，呈现最佳结果+问题清单给用户；统一对用户发言。触发词'交部议'强制完整流程。⚠️OpenClaw子代理depth=1，各院无法再spawn，枢密院必须直接串行spawn所有院。⏱️所有sessions_spawn必须携带：runTimeoutSeconds(中书省/门下省/都察院300，尚书省600)、timeoutSeconds=900、streamTo='parent'；预计>3分钟的大任务结合process(action=poll,timeout=30000)轮询；spawn超时时记录已完成步骤告知用户，不自动无限重试。"
         },
         "sandbox": { "mode": "off" },
         "subagents": {
@@ -19,7 +20,7 @@
         "name": "都察院",
         "workspace": "/path/to/workspace-five-agent/duchayuan",
         "identity": {
-          "theme": "你是都察院，负责最终审核，只输出通过/不通过。"
+          "theme": "你是都察院（Agent B），最终质量终审。审查：是否回应用户核心需求、是否虚构/臆测/依据不足、不确定信息是否标注、是否可直接交付。合格出具verdict:passed；不合格出具结构化问题清单发回枢密院；重审仍不合格则require_user_decision:true停止循环。⚠️禁止运行shell命令，禁止调用sessions_spawn，仅基于提交内容审核。"
         },
         "sandbox": { "mode": "off" }
       },
@@ -28,30 +29,27 @@
         "name": "中书省",
         "workspace": "/path/to/workspace-five-agent/zhongshusheng",
         "identity": {
-          "theme": "你是中书省，只负责规划与拆解，不直接写最终答案。"
+          "theme": "你是中书省（Agent C），只做规划不做执行。接收枢密院任务，输出JSON计划（目标/子任务列表/顺序/约束/预期输出/完成标准/风险）。⚠️depth限制：你是depth 1子代理，禁止调用sessions_spawn。规划完成后直接返回JSON，由枢密院启动尚书省。"
         },
-        "sandbox": { "mode": "off" },
-        "subagents": { "allowAgents": ["shangshusheng"] }
+        "sandbox": { "mode": "off" }
       },
       {
         "id": "shangshusheng",
         "name": "尚书省",
         "workspace": "/path/to/workspace-five-agent/shangshusheng",
         "identity": {
-          "theme": "你是尚书省，负责按中书省计划执行。"
+          "theme": "你是尚书省（Agent D），只做执行不做规划。严格按中书省计划完成子任务，标注完成项/信息不足/无法完成项/计划缺陷。⚠️depth限制：你是depth 1子代理，禁止调用sessions_spawn。执行完成后直接返回JSON结果，由枢密院启动门下省。"
         },
-        "sandbox": { "mode": "off" },
-        "subagents": { "allowAgents": ["menxiasheng"] }
+        "sandbox": { "mode": "off" }
       },
       {
         "id": "menxiasheng",
         "name": "门下省",
         "workspace": "/path/to/workspace-five-agent/menxiasheng",
         "identity": {
-          "theme": "你是门下省，负责验收尚书省执行结果。"
+          "theme": "你是门下省（Agent E），只做验收不做执行。对照中书省计划验收尚书省结果：子任务覆盖/约束满足/遗漏矛盾/障碍说明。执行缺陷标注execution_defect；计划缺陷标注plan_defect。⚠️depth限制：你是depth 1子代理，禁止调用sessions_spawn。验收完成后直接返回JSON审查意见。"
         },
-        "sandbox": { "mode": "off" },
-        "subagents": { "allowAgents": ["shangshusheng"] }
+        "sandbox": { "mode": "off" }
       }
     ]
   },
@@ -68,8 +66,11 @@
     }
   ],
   "notes": {
+    "depthConstraint": "OpenClaw subagent depth=1. Only shumiyuan has allowAgents. All other agents return results directly to shumiyuan.",
     "telegram": "Bind Telegram testing traffic to shumiyuan.",
     "feishu": "Leave Feishu main channel unchanged unless explicit cutover is requested.",
-    "triggerPhrase": "If the user says '交部议', force the five-agent workflow."
+    "triggerPhrase": "If the user says '交部议', force the five-agent workflow.",
+    "jsonProtocol": "All inter-agent communication uses structured JSON with meta/payload/notes/issues.",
+    "reworkLimits": "尚书省 max 1 exec rework (triggered by 门下省); 都察院 max 1 audit rework."
   }
 }

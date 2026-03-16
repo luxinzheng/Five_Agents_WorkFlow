@@ -12,104 +12,100 @@ Port the five-agent analysis workflow to another OpenClaw instance with minimal 
 4. `shangshusheng` — 尚书省
 5. `menxiasheng` — 门下省
 
-## Required relationships
+## ⚠️ Critical: Subagent Depth Constraint
 
+OpenClaw enforces a **subagent depth limit of 1**. This means only depth-0 agents can spawn subagents.
+
+**Correct allowAgents configuration:**
 - `shumiyuan` may call: `duchayuan`, `zhongshusheng`, `shangshusheng`, `menxiasheng`
-- `zhongshusheng` may call: `shangshusheng`
-- `shangshusheng` may call: `menxiasheng`
-- `menxiasheng` may call: `shangshusheng`
-- `duchayuan` may call nobody
+- All other agents: **no allowAgents** (empty)
 
-## Inter-agent communication contract
+> Previous documentation listed zhongshusheng→[shangshusheng] and shangshusheng→[menxiasheng].
+> This is incorrect under the depth=1 constraint. Only 枢密院 orchestrates the chain.
 
-All internal handoffs between the five agents should use JSON-formatted payloads when practical.
+## Workflow Orchestration
 
-Recommended minimum fields:
-- `task`
-- `goal`
-- `constraints`
-- `expected_output`
-- `status`
-- `risks`
+枢密院 (depth 0) directly orchestrates the entire chain by serial spawning:
 
-This rule applies to:
-- 枢密院 → 中书省
-- 中书省 → 尚书省
-- 尚书省 → 门下省
-- 门下省 → 枢密院
-- 枢密院 → 都察院
+```
+枢密院 → spawn(zhongshusheng)  → receive plan JSON
+枢密院 → spawn(shangshusheng)  → receive execution result JSON
+枢密院 → spawn(menxiasheng)    → receive review verdict JSON
+枢密院 → spawn(duchayuan)      → receive audit result JSON
+枢密院 → output to user
+```
+
+Each subordinate agent completes its own role and returns results. They do NOT spawn the next agent.
 
 ## Role contract
 
 ### 枢密院 / shumiyuan
 - Visible entrypoint to the user
-- Route simple tasks directly, but force full workflow when user says “交部议”
-- For complex tasks: user → 中书省 → 尚书省 → 门下省 → 枢密院 → 都察院 → user
-- Stop after one automatic rework if 都察院 still rejects
+- Route simple tasks directly, but force full workflow when user says "交部议"
+- Serial spawn: zhongshusheng → shangshusheng → menxiasheng → duchayuan
+- Handle rework: spawn shangshusheng again if menxiasheng fails (max 1 rework)
+- Handle audit: spawn duchayuan again after adjusting if it fails (max 1 rework)
+- Stop automatic loop after rework limits
 
 ### 中书省 / zhongshusheng
-Produce:
-- task goal
-- subtask list
-- execution order
-- constraints
-- expected output
-- completion criteria
-- known risks and information gaps
+Produce JSON plan:
+- task goal, subtask list, execution order, constraints
+- expected output, completion criteria, known risks and gaps
+
+⚠️ Must NOT call sessions_spawn. Return JSON directly.
 
 ### 尚书省 / shangshusheng
-Produce:
-- completed items
-- incomplete items
-- missing information
-- blockers/conflicts
-- tools or reasoning basis used
-- satisfaction of completion criteria
+Produce JSON execution result:
+- completed items, incomplete items, missing information
+- blockers/conflicts, plan defects noted
+
+⚠️ Must NOT call sessions_spawn. Return JSON directly.
 
 ### 门下省 / menxiasheng
 - Validate against 中书省 plan
-- Either approve or return one focused补充 request
+- Output verdict: passed / failed
+- If failed: specify problem_source (execution_defect or plan_defect)
 - Do not introduce unrelated requirements
 
+⚠️ Must NOT call sessions_spawn. Return JSON directly.
+
 ### 都察院 / duchayuan
-- Final quality gate
-- Output only: 通过 / 不通过
-- On rejection, list only key issues and concrete fixes
+- Final quality gate: user need addressed, no hallucination, uncertainty marked, deliverable
+- Output: passed / failed (with structured issues)
+- On second rejection: require_user_decision=true, stop loop
+
+⚠️ Must NOT run shell commands. Must NOT call sessions_spawn. Return JSON directly.
+
+## Inter-agent communication contract
+
+All internal handoffs between agents use JSON-formatted payloads.
+
+Recommended minimum fields:
+- `meta`: task_id, from_agent, to_agent, stage, status
+- `payload`: task/plan/result/review content
+- `issues`: structured issue list
 
 ## Channel migration policy
 
 ### Telegram
 - Bind the target Telegram DM or test entrypoint to `shumiyuan`.
 - Use Telegram as the isolated five-agent testing入口.
-- Keep the binding narrow and explicit when possible, for example a single DM peer.
 
 ### Feishu
 - Do **not** change the existing Feishu main channel by default.
-- Do **not** route Feishu to `shumiyuan` unless the user explicitly asks for cutover.
-- Treat the default migration posture as: **Telegram for five-agent testing, Feishu unchanged for production/main use**.
+- Treat the default migration posture as: **Telegram for five-agent testing, Feishu unchanged**.
 
 ## Trigger phrase contract
 
-Preserve this instruction in the migrated setup:
-- If the user says **“交部议”**, force the five-agent workflow.
-- Do this even when the task looks simple enough for a direct answer.
-- Interpret it as a workflow command, not as ordinary prose.
-
-## Important deployment note
-
-If `shangshusheng` uses sandbox mode that requires Docker, ensure Docker exists on the target host. If not, prefer `"sandbox": { "mode": "off" }`.
+- If the user says **"交部议"**, force the five-agent workflow.
+- Interpret it as a workflow command, not ordinary prose.
 
 ## Recommended smoke test
 
 Use a prompt like:
-- “请调研一下油价上升对中国房地产市场的影响，交部议。”
+- "请调研一下油价上升对中国房地产市场的影响，交部议。"
 
 Expected behavior:
-- Telegram message enters `shumiyuan`
-- Feishu main channel remains unchanged
-- 枢密院 recognizes forced five-agent mode from “交部议”
-- 中书省 plans
-- 尚书省 executes
-- 门下省 validates
-- 都察院 audits
-- 枢密院 returns final integrated answer
+- 枢密院 recognizes forced five-agent mode
+- 枢密院 serially spawns: 中书省 → 尚书省 → 门下省 → 都察院
+- 枢密院 returns final integrated answer to user

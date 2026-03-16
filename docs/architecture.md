@@ -14,6 +14,14 @@ Reference inspiration: https://github.com/wanikua/boluobobo-ai-court-tutorial
 | 尚书省 | `shangshusheng` (D) | Execution only (follows plans from 中书省) |
 | 门下省 | `menxiasheng` (E) | Process review (execution vs plan verification) |
 
+## ⚠️ Critical Constraint: Subagent Depth Limit
+
+OpenClaw enforces a **subagent depth limit of 1**. This means:
+- 枢密院 (depth 0) can spawn all agents
+- Any spawned agent (depth 1) **cannot** spawn further subagents
+
+**Consequence:** 枢密院 must directly orchestrate the entire workflow chain, calling each agent in sequence. The individual agents (三省 + 都察院) only perform their own task and return results — they do not spawn the next agent.
+
 ## Workflow
 
 ### Simple Tasks
@@ -22,13 +30,35 @@ User → A (direct response) → B (audit) → User
 ```
 
 ### Complex Tasks
+
 ```
-User → A → C (plan) → A → D (execute) → A → E (review) → A → B (audit) → User
+User → A
+  A → sessions_spawn(zhongshusheng)  [plan]
+  A → sessions_spawn(shangshusheng)  [execute, pass plan]
+  A → sessions_spawn(menxiasheng)    [review, pass plan+result]
+  A → sessions_spawn(duchayuan)      [final audit]
+  A → User
 ```
 
+**All spawning is done by 枢密院.** Each subordinate agent completes its role and returns a result JSON.
+
 ### Rework Rules
-- Each level may rework at most **1 time**
-- After rework limit: stop automatic loop, output current best result + audit opinions
+- 门下省 rejects → A spawns 尚书省 again (max **1 time**)
+- 都察院 rejects → A adjusts and spawns 都察院 again (max **1 time**)
+- After rework limit: stop automatic loop, output current best result + audit opinions to user
+
+## allowAgents Configuration
+
+```
+shumiyuan  → [duchayuan, zhongshusheng, shangshusheng, menxiasheng]
+zhongshusheng → []
+shangshusheng → []
+menxiasheng   → []
+duchayuan     → []
+```
+
+> Note: Previous versions had 中书省→尚书省 and 尚书省→门下省 in allowAgents.
+> This was incorrect given the depth=1 constraint. The correct config has only 枢密院 with allowAgents.
 
 ## Inter-Agent Communication
 
